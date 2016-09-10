@@ -59,6 +59,16 @@ pub trait RevdepForwarder {
     fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
 
+impl<T> RevdepForwarder for T where T: UpdatingNode {
+    fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.add_revdep(revdep);
+    }
+
+    fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.remove_revdep(revdep);
+    }
+}
+
 pub trait CachableNode: Node + RevdepForwarder {}
 impl<T: Node + RevdepForwarder> CachableNode for T
     where T::Output: Clone {}
@@ -142,18 +152,6 @@ impl<T: CachableNode> UpdatingNode for CachedNode<T>
     }
 }
 
-impl<T: CachableNode> RevdepForwarder for CachedNode<T>
-    where T::Output: Clone
-{
-    fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>) {
-        self.add_revdep(revdep);
-    }
-
-    fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>) {
-        self.remove_revdep(revdep);
-    }
-}
-
 impl<T: CachableNode + 'static> CachedNode<T>
 {
     pub fn new(inner: Ref<T>) -> Ref<CachedNode<T>> {
@@ -205,15 +203,6 @@ impl<T: Clone> UpdatingNode for InputNode<T> {
     }
     fn remove_revdep(&self, revdep: Ref<UpdateableNode>) {
         self.revdeps.borrow_mut().remove_revdep(revdep);
-    }
-}
-
-impl<T: Clone> RevdepForwarder for InputNode<T> {
-    fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>) {
-        self.add_revdep(revdep);
-    }
-    fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>) {
-        self.remove_revdep(revdep);
     }
 }
 
