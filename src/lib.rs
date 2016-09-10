@@ -1,5 +1,9 @@
 use std::cell::RefCell;
 
+mod ops;
+
+pub use ops::AddNode;
+
 macro_rules! impl_node_for {
     ($ty:ty) => (
         impl Node for $ty {
@@ -50,16 +54,20 @@ impl_node_for!(bool,
 pub trait UpdateableNode {
     fn update(&self);
 }
+
 pub trait UpdatingNode: Node {
     fn add_revdep(&self, revdep: Ref<UpdateableNode>);
     fn remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
+
 pub trait RevdepForwarder {
     fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>);
     fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
 
-impl<T> RevdepForwarder for T where T: UpdatingNode {
+impl<T> RevdepForwarder for T
+    where T: UpdatingNode
+{
     fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>) {
         self.add_revdep(revdep);
     }
@@ -70,10 +78,10 @@ impl<T> RevdepForwarder for T where T: UpdatingNode {
 }
 
 pub trait CachableNode: Node + RevdepForwarder {}
-impl<T: Node + RevdepForwarder> CachableNode for T
-    where T::Output: Clone {}
+impl<T: Node + RevdepForwarder> CachableNode for T where T::Output: Clone {}
 
 struct RevdepVec(Vec<WeakRef<UpdateableNode>>);
+
 impl RevdepVec {
     fn new() -> RevdepVec {
         RevdepVec(Vec::new())
@@ -114,8 +122,7 @@ impl RevdepVec {
     }
 }
 
-pub struct CachedNode<T: CachableNode>
-{
+pub struct CachedNode<T: CachableNode> {
     inner_node: RefCell<Ref<T>>,
     cached_value: RefCell<T::Output>,
     revdeps: RefCell<RevdepVec>,
@@ -131,8 +138,7 @@ impl<T: CachableNode> Node for CachedNode<T>
     }
 }
 
-impl<T: CachableNode> UpdateableNode for CachedNode<T>
-{
+impl<T: CachableNode> UpdateableNode for CachedNode<T> {
     fn update(&self) {
         *self.cached_value.borrow_mut() = self.inner_node.borrow().eval();
 
@@ -152,8 +158,7 @@ impl<T: CachableNode> UpdatingNode for CachedNode<T>
     }
 }
 
-impl<T: CachableNode + 'static> CachedNode<T>
-{
+impl<T: CachableNode + 'static> CachedNode<T> {
     pub fn new(inner: Ref<T>) -> Ref<CachedNode<T>> {
         let value = inner.eval();
 
