@@ -50,30 +50,65 @@ impl_node_for!(bool,
 pub trait UpdateableNode {
     fn update(&self);
 }
-
 pub trait UpdatingNode: Node {
     fn add_revdep(&self, revdep: Ref<UpdateableNode>);
     fn remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
-
 pub trait RevdepForwarder {
     fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>);
     fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
 
-pub trait CachableNode: Node + RevdepForwarder {
-}
-
+pub trait CachableNode: Node + RevdepForwarder {}
 impl<T: Node + RevdepForwarder> CachableNode for T
-    where T::Output: Clone
-{
+    where T::Output: Clone {}
+
+struct RevdepVec(Vec<WeakRef<UpdateableNode>>);
+impl RevdepVec {
+    fn new() -> RevdepVec {
+        RevdepVec(Vec::new())
+    }
+
+    fn add_revdep(&mut self, revdep: Ref<UpdateableNode>) {
+        self.0.push(Ref::downgrade(&revdep));
+    }
+
+    fn remove_revdep(&mut self, revdep: Ref<UpdateableNode>) {
+        use std::ops::Deref;
+
+        let needle = revdep.deref() as *const UpdateableNode;
+
+        self.0.retain(|weak| {
+            let strong = match weak.upgrade() {
+                None => return false,
+                Some(r) => r,
+            };
+
+            if strong.deref() as *const UpdateableNode == needle {
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    fn update_all(&mut self) {
+        self.0.retain(|weak| {
+            if let Some(revdep) = weak.upgrade() {
+                revdep.update();
+                true
+            } else {
+                false
+            }
+        });
+    }
 }
 
 pub struct CachedNode<T: CachableNode>
 {
     inner_node: RefCell<Ref<T>>,
     cached_value: RefCell<T::Output>,
-    revdeps: RefCell<Vec<WeakRef<UpdateableNode>>>,
+    revdeps: RefCell<RevdepVec>,
 }
 
 impl<T: CachableNode> Node for CachedNode<T>
@@ -91,14 +126,7 @@ impl<T: CachableNode> UpdateableNode for CachedNode<T>
     fn update(&self) {
         *self.cached_value.borrow_mut() = self.inner_node.borrow().eval();
 
-        self.revdeps.borrow_mut().retain(|weak| {
-            if let Some(revdep) = weak.upgrade() {
-                revdep.update();
-                true
-            } else {
-                false
-            }
-        });
+        self.revdeps.borrow_mut().update_all();
     }
 }
 
@@ -106,26 +134,11 @@ impl<T: CachableNode> UpdatingNode for CachedNode<T>
     where T::Output: Clone
 {
     fn add_revdep(&self, revdep: Ref<UpdateableNode>) {
-        self.revdeps.borrow_mut().push(Ref::downgrade(&revdep));
+        self.revdeps.borrow_mut().add_revdep(revdep);
     }
 
     fn remove_revdep(&self, revdep: Ref<UpdateableNode>) {
-        use std::ops::Deref;
-
-        let needle = revdep.deref() as *const UpdateableNode;
-
-        self.revdeps.borrow_mut().retain(|weak| {
-            let strong = match weak.upgrade() {
-                None => return false,
-                Some(r) => r,
-            };
-
-            if strong.deref() as *const UpdateableNode == needle {
-                false
-            } else {
-                true
-            }
-        });
+        self.revdeps.borrow_mut().remove_revdep(revdep);
     }
 }
 
@@ -149,7 +162,7 @@ impl<T: CachableNode + 'static> CachedNode<T>
         let node = Ref::new(CachedNode {
             inner_node: RefCell::new(inner),
             cached_value: RefCell::new(value),
-            revdeps: RefCell::new(Vec::new()),
+            revdeps: RefCell::new(RevdepVec::new()),
         });
 
         node.inner_node.borrow().forward_add_revdep(node.clone());
@@ -158,20 +171,49 @@ impl<T: CachableNode + 'static> CachedNode<T>
     }
 }
 
-pub trait RefCachedNodeExt<T: CachableNode + 'static> {
-    fn set_inner(&self, new_inner: Ref<T>);
+pub struct InputNode<T: Clone> {
+    value: RefCell<T>,
+    revdeps: RefCell<RevdepVec>,
 }
 
-impl<T: CachableNode + 'static> RefCachedNodeExt<T> for Ref<CachedNode<T>> {
-    fn set_inner(&self, new_inner: Ref<T>) {
-        {
-            let mut inner_node = self.inner_node.borrow_mut();
-            inner_node.forward_remove_revdep(self.clone());
-            *inner_node = new_inner;
-            inner_node.forward_add_revdep(self.clone());
-        }
+impl<T: Clone> Node for InputNode<T> {
+    type Output = T;
 
-        self.update();
+    fn eval(&self) -> Self::Output {
+        self.value.borrow().clone()
+    }
+}
+
+impl<T: Clone> InputNode<T> {
+    pub fn new(value: T) -> Ref<InputNode<T>> {
+        Ref::new(InputNode {
+            value: RefCell::new(value),
+            revdeps: RefCell::new(RevdepVec::new()),
+        })
+    }
+
+    pub fn set(&self, value: T) {
+        *self.value.borrow_mut() = value;
+
+        self.revdeps.borrow_mut().update_all();
+    }
+}
+
+impl<T: Clone> UpdatingNode for InputNode<T> {
+    fn add_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.revdeps.borrow_mut().add_revdep(revdep);
+    }
+    fn remove_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.revdeps.borrow_mut().remove_revdep(revdep);
+    }
+}
+
+impl<T: Clone> RevdepForwarder for InputNode<T> {
+    fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.add_revdep(revdep);
+    }
+    fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.remove_revdep(revdep);
     }
 }
 
@@ -186,18 +228,19 @@ mod tests {
 
         assert_eq!(node1.eval(), 1.0f32);
         assert_eq!(cache_node.eval(), 1.0f32);
+    }
 
-        node1.set_inner(Ref::new(2.0f32));
+    #[test]
+    fn input_nodes() {
+        let input = InputNode::new(1.0f32);
+        let cache = CachedNode::new(input.clone());
 
-        assert_eq!(node1.eval(), 2.0f32);
-        assert_eq!(cache_node.eval(), 2.0f32);
+        assert_eq!(input.eval(), 1.0f32);
+        assert_eq!(cache.eval(), 1.0f32);
 
-        cache_node.set_inner(CachedNode::new(Ref::new(4.0f32)));
+        input.set(3.0f32);
 
-        node1.set_inner(Ref::new(3.0f32));
-
-        assert_eq!(node1.eval(), 3.0f32);
-        assert_eq!(cache_node.eval(), 4.0f32);
-
+        assert_eq!(input.eval(), 3.0f32);
+        assert_eq!(cache.eval(), 3.0f32);
     }
 }
