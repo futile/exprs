@@ -216,11 +216,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let node1 = CachedNode::new(Ref::new(1.0f32));
-        let cache_node = CachedNode::new(node1.clone());
+    fn basic_constant_cache() {
+        let node = CachedNode::new(Ref::new(1.0f32));
+        let cache_node = CachedNode::new(node.clone());
 
-        assert_eq!(node1.eval(), 1.0f32);
+        assert_eq!(node.eval(), 1.0f32);
         assert_eq!(cache_node.eval(), 1.0f32);
     }
 
