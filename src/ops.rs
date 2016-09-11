@@ -2,6 +2,59 @@ use super::{Node, Ref, RevdepForwarder, UpdateableNode};
 
 use std::ops::*;
 
+macro_rules! create_node_for_unary_op {
+    ($name:ident, $ty:ident, $method:ident,) => (
+        pub struct $name<LhsNode: Node>
+            where LhsNode::Output: $ty
+        {
+            lhs: Ref<LhsNode>,
+        }
+
+        impl<LhsNode: Node> Node for $name<LhsNode>
+            where LhsNode::Output: $ty
+        {
+            type Output = <LhsNode::Output as $ty>::Output;
+
+            fn eval(&self) -> Self::Output {
+                self.lhs.eval().$method()
+            }
+        }
+
+        impl<LhsNode: Node> $name<LhsNode>
+            where LhsNode::Output: $ty
+        {
+            pub fn new(lhs: Ref<LhsNode>) -> Ref<$name<LhsNode>> {
+                Ref::new($name {
+                    lhs: lhs,
+                })
+            }
+        }
+
+        impl<LhsNode: Node> RevdepForwarder for $name<LhsNode>
+            where LhsNode::Output: $ty,
+                  LhsNode: RevdepForwarder,
+        {
+            fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>) {
+                self.lhs.forward_add_revdep(revdep.clone());
+            }
+
+            fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>) {
+                self.lhs.forward_remove_revdep(revdep.clone());
+            }
+        }
+    );
+
+    ($name:ident, $ty:ident, $method:ident, $($name2:ident, $ty2:ident, $method2:ident,)*) => (
+        create_node_for_unary_op!($name, $ty, $method,);
+        create_node_for_unary_op!($($name2, $ty2, $method2,)*);
+    );
+}
+
+create_node_for_unary_op!(
+    NegNode, Neg, neg,
+    NotNode, Not, not,
+);
+
 macro_rules! create_node_for_binary_op {
     ($name:ident, $ty:ident, $method:ident,) => (
         pub struct $name<LhsNode: Node, RhsNode: Node>
@@ -119,5 +172,29 @@ mod tests {
         input.set(2u8);
 
         assert_eq!(add.eval(), 4u8);
+    }
+
+    #[test]
+    fn neg_cached() {
+        let input = InputNode::new(1i8);
+        let add = CachedNode::new(NegNode::new(input.clone()));
+
+        assert_eq!(add.eval(), -1i8);
+
+        input.set(2i8);
+
+        assert_eq!(add.eval(), -2i8);
+    }
+
+    #[test]
+    fn not_cached() {
+        let input = InputNode::new(0u8);
+        let add = CachedNode::new(NotNode::new(input.clone()));
+
+        assert_eq!(add.eval(), 0xFFu8);
+
+        input.set(1u8);
+
+        assert_eq!(add.eval(), 0xFEu8);
     }
 }
