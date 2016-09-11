@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 mod ops;
 
-pub use ops::AddNode;
+pub use ops::*;
 
 macro_rules! impl_node_for {
     ($ty:ty) => (
