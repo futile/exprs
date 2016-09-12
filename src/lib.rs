@@ -123,7 +123,7 @@ impl RevdepVec {
 }
 
 pub struct CachedNode<T: CachableNode> {
-    inner_node: RefCell<Ref<T>>,
+    inner_node: Ref<T>,
     cached_value: RefCell<T::Output>,
     revdeps: RefCell<RevdepVec>,
 }
@@ -140,7 +140,7 @@ impl<T: CachableNode> Node for CachedNode<T>
 
 impl<T: CachableNode> UpdateableNode for CachedNode<T> {
     fn update(&self) {
-        *self.cached_value.borrow_mut() = self.inner_node.borrow().eval();
+        *self.cached_value.borrow_mut() = self.inner_node.eval();
 
         self.revdeps.borrow_mut().update_all();
     }
@@ -163,12 +163,12 @@ impl<T: CachableNode + 'static> CachedNode<T> {
         let value = inner.eval();
 
         let node = Ref::new(CachedNode {
-            inner_node: RefCell::new(inner),
+            inner_node: inner,
             cached_value: RefCell::new(value),
             revdeps: RefCell::new(RevdepVec::new()),
         });
 
-        node.inner_node.borrow().forward_add_revdep(node.clone());
+        node.inner_node.forward_add_revdep(node.clone());
 
         node
     }
