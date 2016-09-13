@@ -174,6 +174,68 @@ impl<T: CachableNode + 'static> CachedNode<T> {
     }
 }
 
+pub struct LazyCachedNode<T: CachableNode> {
+    inner_node: Ref<T>,
+    cached_value: RefCell<Option<T::Output>>,
+    revdeps: RefCell<RevdepVec>,
+}
+
+impl<T: CachableNode> Node for LazyCachedNode<T>
+    where T::Output: Clone
+{
+    type Output = T::Output;
+
+    fn eval(&self) -> Self::Output {
+        use std::ops::DerefMut;
+
+        let mut cache_borrow = self.cached_value.borrow_mut();
+        let cache = cache_borrow.deref_mut();
+
+        if let &mut Some(ref cached) = cache {
+            cached.clone()
+        } else {
+            let new = self.inner_node.eval();
+            *cache = Some(new.clone());
+
+            new
+        }
+    }
+}
+
+impl<T: CachableNode> UpdateableNode for LazyCachedNode<T> {
+    fn update(&self) {
+        *self.cached_value.borrow_mut() = None;
+
+        self.revdeps.borrow_mut().update_all();
+    }
+}
+
+impl<T: CachableNode> UpdatingNode for LazyCachedNode<T>
+    where T::Output: Clone
+{
+    fn add_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.revdeps.borrow_mut().add_revdep(revdep);
+    }
+
+    fn remove_revdep(&self, revdep: Ref<UpdateableNode>) {
+        self.revdeps.borrow_mut().remove_revdep(revdep);
+    }
+}
+
+impl<T: CachableNode + 'static> LazyCachedNode<T> {
+    pub fn new(inner: Ref<T>) -> Ref<LazyCachedNode<T>> {
+        let node = Ref::new(LazyCachedNode {
+            inner_node: inner,
+            cached_value: RefCell::new(None),
+            revdeps: RefCell::new(RevdepVec::new()),
+        });
+
+        node.inner_node.forward_add_revdep(node.clone());
+
+        node
+    }
+}
+
 pub struct InputNode<T: Clone> {
     value: RefCell<T>,
     revdeps: RefCell<RevdepVec>,
@@ -228,6 +290,20 @@ mod tests {
     fn input_nodes() {
         let input = InputNode::new(1.0f32);
         let cache = CachedNode::new(input.clone());
+
+        assert_eq!(input.eval(), 1.0f32);
+        assert_eq!(cache.eval(), 1.0f32);
+
+        input.set(3.0f32);
+
+        assert_eq!(input.eval(), 3.0f32);
+        assert_eq!(cache.eval(), 3.0f32);
+    }
+
+    #[test]
+    fn lazy_cache() {
+        let input = InputNode::new(1.0f32);
+        let cache = LazyCachedNode::new(input.clone());
 
         assert_eq!(input.eval(), 1.0f32);
         assert_eq!(cache.eval(), 1.0f32);
