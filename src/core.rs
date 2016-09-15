@@ -24,12 +24,27 @@ macro_rules! impl_node_for {
     );
 }
 
+/// The type of reference used for `Node`s.
 pub type Ref<T> = ::std::rc::Rc<T>;
 pub type WeakRef<T> = ::std::rc::Weak<T>;
 
+/// The `Node` trait forms the basis for all expressions in this crate.
+///
+/// # Examples
+///
+/// ```
+/// use exprs::{Ref, Node};
+/// 
+/// let node: Ref<Node<Output=f32>> = Ref::new(1.0f32);
+/// let node2 = Ref::new(1.0f32);
+///
+/// assert_eq!(node.eval(), node2.eval());
+/// ```
 pub trait Node {
+    /// The type of values produced by this `Node`.
     type Output;
 
+    /// Evaluates the `Node`, resulting in a value of type `Output`.
     fn eval(&self) -> Self::Output;
 }
 
@@ -103,6 +118,19 @@ impl RevdepVec {
     }
 }
 
+/// An `InputNode`. Contains a value that can be changed.
+///
+/// # Examples
+///
+/// ```
+/// use exprs::{Ref, Node, InputNode};
+/// 
+/// let input = InputNode::new(100u8);
+/// assert_eq!(input.eval(), 100u8);
+///
+/// input.set(101u8);
+/// assert_eq!(input.eval(), 101u8);
+/// ```
 pub struct InputNode<T: Clone> {
     value: RefCell<T>,
     revdeps: RefCell<RevdepVec>,
@@ -117,6 +145,7 @@ impl<T: Clone> Node for InputNode<T> {
 }
 
 impl<T: Clone> InputNode<T> {
+    /// Create a new `InputNode` given an initial input value.
     pub fn new(value: T) -> Ref<InputNode<T>> {
         Ref::new(InputNode {
             value: RefCell::new(value),
@@ -124,6 +153,7 @@ impl<T: Clone> InputNode<T> {
         })
     }
 
+    /// Change the value contained in this `InputNode`.
     pub fn set(&self, value: T) {
         *self.value.borrow_mut() = value;
 
