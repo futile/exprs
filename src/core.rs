@@ -34,7 +34,7 @@ pub type WeakRef<T> = ::std::rc::Weak<T>;
 ///
 /// ```
 /// use exprs::{Ref, Node};
-/// 
+///
 /// let node: Ref<Node<Output=f32>> = Ref::new(1.0f32);
 /// let node2 = Ref::new(1.0f32);
 ///
@@ -62,31 +62,55 @@ impl_node_for!(bool,
                f32,
                f64);
 
+/// A trait for nodes (or other types) that can be updated when e.g. an input changes.
 pub trait UpdateableNode {
+    /// This function is called after something (e.g. an input) changed.
     fn update(&self);
 }
 
+/// A trait for nodes that can notify other `Node`s when their `eval()`-result changes.
+///
+/// This is mainly done by installing all `Node`s that depend on this `Node` as
+/// reverse dependencies. Therefore this trait offers methods to add and remove reverse
+/// dependencies from a `Node`.
 pub trait UpdatingNode: Node {
+    /// Adds a reverse dependency to this `Node`.
     fn add_revdep(&self, revdep: Ref<UpdateableNode>);
+    /// Removes a reverse dependency from this `Node`.
     fn remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
 
+/// A trait for nodes that can forward reverse dependencies.
+///
+/// This trait is for nodes that do not themselves store a list of reverse dependencies, but instead
+/// forward the request for adding a reverse dependency to (usually) all of their child nodes.
 pub trait RevdepForwarder {
+    /// Forwards a new reverse dependency to all child nodes.
     fn forward_add_revdep(&self, revdep: Ref<UpdateableNode>);
+    /// Forwards the removal of a reverse dependency to all child nodes.
     fn forward_remove_revdep(&self, revdep: Ref<UpdateableNode>);
 }
 
+/// A type that is used to easily store a list of reverse dependencies.
+///
+/// It stores all reverse dependencies as `WeakRef`s, and purges them whenever they expire.
+/// This type is usually used by `Node`s that implement `UpdatingNode` in order to manage
+/// reverse dependencies.
 pub struct RevdepVec(Vec<WeakRef<UpdateableNode>>);
 
 impl RevdepVec {
+    /// Creates a new, empty `RevdepVec`.
     pub fn new() -> RevdepVec {
         RevdepVec(Vec::new())
     }
 
+    /// Adds a reverse dependency to this `RevdepVec`.
     pub fn add_revdep(&mut self, revdep: Ref<UpdateableNode>) {
         self.0.push(Ref::downgrade(&revdep));
     }
 
+    /// Removes a reverse dependency from this `RevdepVec`. Purges any
+    /// reverse dependencies that have expired (i.e. garbage collected).
     pub fn remove_revdep(&mut self, revdep: Ref<UpdateableNode>) {
         use std::ops::Deref;
 
@@ -106,6 +130,8 @@ impl RevdepVec {
         });
     }
 
+    /// Updates all reverse dependencies that are stored, and purges
+    /// expired `Node`s.
     pub fn update_all(&mut self) {
         self.0.retain(|weak| {
             if let Some(revdep) = weak.upgrade() {
@@ -124,7 +150,7 @@ impl RevdepVec {
 ///
 /// ```
 /// use exprs::{Ref, Node, InputNode};
-/// 
+///
 /// let input = InputNode::new(100u8);
 /// assert_eq!(input.eval(), 100u8);
 ///
